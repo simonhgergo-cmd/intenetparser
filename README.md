@@ -26,8 +26,7 @@ screen before clicking Install Now.
 | Mac | `Start (Mac).command`. If macOS says it can't verify the developer: right-click the file → **Open** → **Open**. |
 | Linux | `start-linux.sh` (or run `./start-linux.sh` in a terminal) |
 
-The first time, a setup wizard asks a few questions: the Reddit app (see below), and which groups
-of people to cover. Press Enter to skip any question. Then you get a menu:
+The first time, a setup wizard asks a few questions, mainly which groups of people to cover. Press Enter to skip any question. Then you get a menu:
 
 ```
   1  Collect now, then open the report
@@ -42,22 +41,21 @@ of people to cover. Press Enter to skip any question. Then you get a menu:
 Choose **6** to see how long a run will take, then **1**. Your computer must stay on and awake while
 it collects. Turn off sleep, or use option 2 on a computer that stays on.
 
-### The free Reddit app (recommended, about 2 minutes)
+### Reddit: nothing to set up
 
-Reddit is most of the data. Without an app, Reddit allows about 10 requests a minute; with one,
-100. That makes a full run about 20 minutes instead of about 2.5 hours. The setup wizard walks you
-through it and checks that it works:
+Reddit is most of the data. By default it's read from
+[Arctic Shift](https://arctic-shift.photon-reddit.com), a free public archive of Reddit that
+researchers and moderators use. No account, key or approval is needed, and it returns 100 posts or
+comments per request.
 
-1. Log in to Reddit in your browser (any account; a new one is fine).
-2. Go to https://www.reddit.com/prefs/apps
-3. Scroll down and click **create another app...** (or **are you a developer? create an app**).
-4. Fill in: name `intenetparser`, type **script**, redirect uri `http://localhost:8080`.
-5. Click **create app**.
-6. Copy the **ID** (the short code under the app name, below "personal use script") and the
-   **secret**, and paste them into the wizard.
-
-If Reddit shows a form asking you to request API access instead of the button, fill it in
-(personal, non-commercial research), or skip it: everything still works, just slower.
+- It's run by a third party, not Reddit. If it can't be reached, the tool automatically reads Reddit
+  directly instead. That still works without an account, but Reddit then allows only about 10
+  requests a minute, so a full run takes hours.
+- Scores (upvotes) are captured soon after posting, so they're often lower than what Reddit shows
+  later. That only affects how themes are weighted.
+- Reddit's own API now needs Reddit's approval to create an app (Responsible Builder Policy). If
+  you get approved, enter the client ID and secret in the setup wizard; the tool then reads Reddit
+  directly at 100 requests a minute.
 
 ## Disk space
 
@@ -88,24 +86,18 @@ python3 -m iparse run --once
 
 ## Speed and volume
 
-With the default config, which covers all ~70 non-sensitive groups in the catalog, one cycle is
-roughly:
+With the default config, which covers all ~70 non-sensitive groups in the catalog, one run is
+roughly **1,100 requests, ~80,000 posts and comments, ~15–20 minutes**. Reddit through the
+archive takes ~10 minutes; App Store reviews are now the slowest part.
 
-| | with free Reddit app | without |
-|---|---|---|
-| Requests | ~1,900 | ~1,900 |
-| Posts and comments collected | ~100,000 | ~100,000 |
-| Time | **~15–20 min** | ~2.5 hours |
-
-`iparse plan` prints this for your own config. These are estimates from request counts and
-rate limits; real runs vary with errors and retries.
+`iparse plan` (menu option 6) prints this for your own config. These are estimates from request
+counts and rate limits; real runs vary with errors and retries.
 
 How it stays fast:
 
 - All sources run in parallel, so total time is the slowest source, not the sum.
 - Each site gets its own request rate, matched to its published limits (`iparse/http.py`).
-- Reddit comments come 100 per request (a subreddit's newest comments) instead of one request per
-  post. Only the top 3 new posts per subreddit get their own comment request.
+- Reddit posts and comments come 100 per request (a subreddit's newest ones).
 - Posts already in the database don't get their comments fetched again.
 - Analysis uses every CPU core (about 10,000 posts/s on 4 cores) and only touches new posts.
 
@@ -134,7 +126,7 @@ by size and prints the lines to paste into your config.
 
 | Source | Status | What you need |
 |---|---|---|
-| Reddit | on | Works without an account; a free "script" app is ~10x faster (see above). Free API terms cover non-commercial use. |
+| Reddit | on | Nothing: read from the free Arctic Shift archive, or directly from Reddit if the archive is down or you have an approved app |
 | Hacker News | on | Nothing |
 | Bluesky (free stand-in for X) | on | Search may require a free account + app password |
 | Mastodon | on | Nothing |
@@ -246,7 +238,7 @@ Responses go to `exports/llm/responses/`.
 - **Patterns:** `iparse/analysis/lexicon.py` holds every regex for problems, wishes and joys, plus
   the sentiment word list. Add phrasings you see in your data, then run `iparse analyze --all`.
 - **Thresholds:** `[analysis]`. Lower `min_mentions` to see rarer themes.
-- **Volume:** `posts_per_listing`, `comments_per_sub` and `top_post_comments` under
+- **Volume:** `posts_per_listing`, `comments_per_sub` and `archive_days` under
   `[sources.reddit]`. Check the effect with `iparse plan`.
 
 ## Data and privacy

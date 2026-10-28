@@ -42,12 +42,15 @@ class CatalogTests(unittest.TestCase):
         self.assertIn("teachers", out["mastodon"]["hashtags"])
         self.assertEqual(cfg["sources"]["reddit"]["subreddits"], ["MyExtra", "Teachers"])  # not mutated
 
-    def test_plan_reflects_reddit_auth(self):
-        cfg = {"catalog": {"groups": []}, "sources": {"reddit": {"enabled": True, "subreddits": ["a"] * 10}}}
-        slow = plan(cfg)[0]["minutes"]
-        cfg["sources"]["reddit"].update(client_id="x", client_secret="y")
-        self.assertLess(plan(cfg)[0]["minutes"] * 5, slow)
-
+    def test_plan_reflects_reddit_mode(self):
+        def minutes(**reddit):
+            cfg = {"catalog": {"groups": []},
+                   "sources": {"reddit": {"enabled": True, "subreddits": ["a"] * 100, **reddit}}}
+            return plan(cfg)[0]["minutes"]
+        archive, direct = minutes(), minutes(mode="official")
+        app = minutes(client_id="x", client_secret="y")
+        self.assertLess(archive * 3, direct)
+        self.assertLess(app * 3, direct)
 
 if __name__ == "__main__":
     unittest.main()

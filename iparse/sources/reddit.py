@@ -1,9 +1,13 @@
-"""Reddit via its public JSON listings.
+"""Reddit, three ways (`mode` in [sources.reddit]):
 
-Works without an account. Optionally set `client_id`/`client_secret` from a
-free "script" app (https://www.reddit.com/prefs/apps) to use the OAuth API,
-which is more reliable from servers that Reddit rate-limits or blocks.
-Reddit's free API terms cover non-commercial use.
+  archive  - Arctic Shift (https://arctic-shift.photon-reddit.com), a free
+             public archive of Reddit. No account or key, 100 items per
+             request. Run by a third party, not Reddit. Scores are captured
+             near posting time, so they can be lower than on Reddit now.
+  official - Reddit itself. With `client_id`/`client_secret` from an app
+             Reddit approved (Responsible Builder Policy) you get 100
+             requests/min; without them, its public JSON at ~10 requests/min.
+  auto     - official if credentials are set, otherwise archive (default).
 """
 from __future__ import annotations
 
@@ -15,6 +19,8 @@ from typing import Iterator
 from ..http import HttpError
 from ..models import Post
 from .base import Source
+
+ARCHIVE = "https://arctic-shift.photon-reddit.com/api"
 
 
 class RedditSource(Source):
@@ -52,13 +58,64 @@ class RedditSource(Source):
 
     # --- collection ------------------------------------------------------
     def collect(self) -> Iterator[Post]:
+        authed = bool(self.cfg.get("client_id") and self.cfg.get("client_secret"))
+        mode = self.cfg.get("mode", "auto")
+        if mode == "archive" or (mode == "auto" and not authed and self._archive_reachable()):
+            yield from self._collect_archive()
+        else:
+            yield from self._collect_official(authed)
+
+    def _archive_reachable(self) -> bool:
+        subs = self.cfg.get("subreddits") or ["AskReddit"]
+        try:
+            self.client.get_json(f"{ARCHIVE}/posts/search", {"subreddit": subs[0], "limit": 1})
+            return True
+        except (HttpError, OSError, ValueError) as e:
+            self.log.warning("Arctic Shift archive unavailable (%s); reading Reddit directly instead (slower)", e)
+            return False
+
+    def _collect_archive(self) -> Iterator[Post]:
+        """Per subreddit: newest posts and newest comments, 100 per request."""
+        per_listing = int(self.cfg.get("posts_per_listing", 100))
+        stream = int(self.cfg.get("comments_per_sub", 100))
+        since = int(time.time() - 86400 * float(self.cfg.get("archive_days", 7)))
+        if self.cfg.get("searches"):
+            self.log.info("Reddit searches are skipped in archive mode (it can't search all of Reddit)")
+        for sub in self.cfg.get("subreddits", []):
+            yield from self._archive("posts", sub, per_listing, since)
+            if stream:
+                yield from self._archive("comments", sub, stream, since)
+
+    def _archive(self, kind: str, sub: str, limit: int, since: int) -> Iterator[Post]:
+        before, fetched = None, 0
+        while fetched < limit:
+            page = min(100, limit - fetched)
+            try:
+                data = self.client.get_json(f"{ARCHIVE}/{kind}/search", {
+                    "subreddit": sub, "limit": page, "sort": "desc", "after": since, "before": before})
+            except (HttpError, OSError, ValueError) as e:
+                self.log.warning("Skipping r/%s %s: %s", sub, kind, e)
+                return
+            items = data.get("data") or []
+            for d in items:
+                post = parse_post(d) if kind == "posts" else parse_stream_comment({"kind": "t1", "data": d})
+                if post:
+                    fetched += 1
+                    yield post
+            oldest = int(min((d.get("created_utc") or 0) for d in items)) if items else None
+            if len(items) < page or not oldest or oldest == before:
+                return
+            before = oldest
+
+    def _collect_official(self, authed: bool) -> Iterator[Post]:
         """Per subreddit: one request for up to 100 posts, one for the latest 100
         comments, plus the top comments of its few highest-scoring new posts."""
         sort = self.cfg.get("sort", "top")
         period = self.cfg.get("time", "week")
         per_listing = int(self.cfg.get("posts_per_listing", 100))
         stream = int(self.cfg.get("comments_per_sub", 100))
-        top_posts = int(self.cfg.get("top_post_comments", 3))
+        # without credentials Reddit allows ~10 requests/min, so skip per-post requests by default
+        top_posts = int(self.cfg.get("top_post_comments", 3 if authed else 0))
         per_post = int(self.cfg.get("comments_per_post", 30))
 
         listings = [(f"/r/{sub}/{sort}", {"t": period}, "", sub) for sub in self.cfg.get("subreddits", [])]
@@ -144,10 +201,10 @@ def parse_post(d: dict, query: str = "") -> Post | None:
         text=d.get("selftext", "") or "",
         community=f"r/{d.get('subreddit', '')}",
         author=d.get("author", ""),
-        url="https://www.reddit.com" + d.get("permalink", ""),
+        url="https://www.reddit.com" + (d.get("permalink") or f"/r/{d.get('subreddit', '')}/comments/{d['id']}/"),
         created_utc=float(d.get("created_utc", 0)),
-        score=int(d.get("score", 0)),
-        num_comments=int(d.get("num_comments", 0)),
+        score=int(d.get("score") or 0),
+        num_comments=int(d.get("num_comments") or 0),
         query=query,
         meta={"flair": d.get("link_flair_text") or ""},
     )
@@ -170,9 +227,10 @@ def parse_stream_comment(child: dict) -> Post | None:
         text=d["body"],
         community=f"r/{d.get('subreddit', '')}",
         author=d.get("author", ""),
-        url="https://www.reddit.com" + d.get("permalink", ""),
+        url="https://www.reddit.com" + (d.get("permalink")
+                                        or f"/r/{d.get('subreddit', '')}/comments/{link or '_'}/_/{d['id']}/"),
         created_utc=float(d.get("created_utc", 0)),
-        score=int(d.get("score", 0)),
+        score=int(d.get("score") or 0),
         parent_id=f"reddit:{link}" if link else "",
         meta={"post_title": d.get("link_title", "")},
     )

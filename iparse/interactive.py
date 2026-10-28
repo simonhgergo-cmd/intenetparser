@@ -22,22 +22,14 @@ from .report import write_report
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "config.example.toml"
 
-REDDIT_STEPS = """
-Reddit is most of the data. A free Reddit "app" makes collecting about 10x faster
-(roughly 20 minutes per cycle instead of 2.5 hours). It takes about 2 minutes:
+REDDIT_INFO = """
+Reddit is most of the data. By default it's read from Arctic Shift, a free public
+archive of Reddit: no account, key or approval needed, and a full run takes
+about 10-15 minutes. (It's run by a third party, so if it ever stops working,
+the tool falls back to reading Reddit directly, which is slower.)
 
-  1. Log in to Reddit in your browser (any account; a new one is fine).
-  2. Open https://www.reddit.com/prefs/apps
-  3. Scroll down and click "create another app..." (or "are you a developer? create an app").
-  4. Fill in:   name: intenetparser   type: choose "script"
-                redirect uri: http://localhost:8080
-  5. Click "create app".
-  6. The ID is the short code under the app name (under "personal use script").
-     The SECRET is next to "secret".
-
-If Reddit shows a form asking you to request API access instead, fill it in
-(describe it as personal, non-commercial research) or skip this step: everything
-still works, just slower.
+Reddit's own API now needs approval under its Responsible Builder Policy.
+Only answer "y" below if Reddit has already approved an app for you.
 """
 
 
@@ -97,17 +89,14 @@ def setup(config_path: Path) -> None:
         text = set_in_section(text, "storage", "author_salt", secrets.token_hex(16))
 
     # Reddit
+    print(REDDIT_INFO)
     has_reddit = bool(cfg.get("sources", {}).get("reddit", {}).get("client_id"))
-    if not has_reddit or yes("Reddit app is already set. Change it?"):
-        print(REDDIT_STEPS)
-        if yes("Open the Reddit apps page in your browser now?", True):
-            webbrowser.open("https://www.reddit.com/prefs/apps")
+    if yes("Do you have an approved Reddit app (client ID and secret)?", has_reddit):
         while True:
-            cid = ask("Paste the ID (Enter to skip)")
+            cid = ask("Paste the client ID (Enter to cancel)")
             if not cid:
-                print("Skipped. Reddit will run in the slower mode.\n")
                 break
-            secret = ask("Paste the SECRET")
+            secret = ask("Paste the secret")
             print("Checking with Reddit...")
             problem = check_reddit(cid, secret)
             if problem is None or not problem.startswith("Reddit rejected"):
@@ -115,7 +104,9 @@ def setup(config_path: Path) -> None:
                 text = set_in_section(text, "sources.reddit", "client_secret", secret)
                 print("Works! Saved.\n" if problem is None else f"Saved, but couldn't verify: {problem}\n")
                 break
-            print(f"{problem}. Check you copied the short ID (not the app name) and the secret, then try again.\n")
+            print(f"{problem}. Check the short client ID and the secret, then try again.\n")
+    else:
+        print("OK: Reddit will be read from the free archive.\n")
 
     # Groups
     dims = {d: [n for n, g in catalog.CATALOG.items() if g["dim"] == d and not g["sensitive"]]

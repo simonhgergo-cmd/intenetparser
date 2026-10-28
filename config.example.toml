@@ -46,20 +46,26 @@ every = "12h"           # how often "keep collecting" runs; each run adds roughl
 
 [sources.reddit]
 enabled = true
-# STRONGLY recommended, free: create a "script" app at https://www.reddit.com/prefs/apps
-# and paste its id/secret here. It raises Reddit's limit from ~10 to 100 requests/min,
-# which makes a full cycle about 10x faster.
+# auto     = Reddit directly if client_id/secret are set below, otherwise the archive (default)
+# archive  = Arctic Shift, a free public Reddit archive: no account, 100 items/request, ~10-15 min
+#            for all groups. Run by a third party, not Reddit.
+# official = Reddit itself. Creating an app now needs Reddit's approval (Responsible Builder
+#            Policy). Without one it still works at ~10 requests/min (several hours for all groups).
+mode = "auto"
+archive_days = 7          # archive mode: how far back to look for new posts and comments
 # client_id = ""
 # client_secret = ""
 sort = "top"              # top | hot | new
 time = "week"             # hour | day | week | month | year | all (for top)
 posts_per_listing = 100   # 1 request per subreddit
 comments_per_sub = 100    # newest comments in the subreddit, 100 per request
-top_post_comments = 3     # also fetch top comments of the N best new posts (1 request each)
+# top_post_comments = 3   # official mode: top comments of the N best posts (1 request each);
+                          # defaults to 3 with an app, 0 without
+
 comments_per_post = 30
 # Extra subreddits on top of the catalog groups (`iparse discover <keyword>` finds them):
 subreddits = []
-searches = [
+searches = [               # official mode only
   "\"is there an app\"", "\"I wish there was\"", "\"why is it so hard to\"",
   "\"I would pay for\"", "\"someone should make\"",
 ]

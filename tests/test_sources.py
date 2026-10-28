@@ -50,7 +50,8 @@ class SourceTests(unittest.TestCase):
             {"kind": "t1", "data": {"id": "s2", "body": "x", "author": "AutoModerator"}}]}}
         client = FakeClient({"/comments/abc": REDDIT_COMMENTS, "/r/Parenting/comments": stream,
                              "/r/Parenting/top": REDDIT_LISTING})
-        src = reddit.RedditSource({"subreddits": ["Parenting"], "comments_per_post": 10}, client)
+        src = reddit.RedditSource({"subreddits": ["Parenting"], "comments_per_post": 10, "mode": "official",
+                                   "top_post_comments": 3}, client)
         posts = list(src.collect())
         self.assertEqual([p.native_id for p in posts], ["abc", "s1", "c1", "c3"])
         self.assertEqual(posts[0].community, "r/Parenting")
@@ -61,15 +62,53 @@ class SourceTests(unittest.TestCase):
     def test_reddit_skips_comments_of_known_posts(self):
         client = FakeClient({"/r/Parenting/comments": {"data": {"children": []}},
                              "/r/Parenting/top": REDDIT_LISTING})
-        src = reddit.RedditSource({"subreddits": ["Parenting"]}, client, known={"abc"})
+        src = reddit.RedditSource({"subreddits": ["Parenting"], "mode": "official", "top_post_comments": 3},
+                                  client, known={"abc"})
         self.assertEqual([p.native_id for p in src.collect()], ["abc"])
         self.assertFalse(any("/comments/abc" in url for url, _ in client.calls))
 
     def test_reddit_ignores_redirected_subreddit_search(self):
         client = FakeClient({"/r/nope/comments": {"data": {"children": []}},
                              "/r/nope/top": {"data": {"children": [{"kind": "t5", "data": {"id": "x"}}]}}})
-        src = reddit.RedditSource({"subreddits": ["nope"]}, client)
+        src = reddit.RedditSource({"subreddits": ["nope"], "mode": "official"}, client)
         self.assertEqual(list(src.collect()), [])
+
+    def test_reddit_archive_mode(self):
+        now = 1_800_000_000
+
+        def posts(params):
+            if params["limit"] == 1:  # reachability probe
+                return {"data": []}
+            if params.get("before"):  # second page
+                return {"data": [{"id": "old", "title": "Old", "selftext": "", "subreddit": "Parenting",
+                                  "created_utc": now - 100_000}]}
+            return {"data": [{"id": f"p{i}", "title": "Rent is a nightmare", "selftext": "", "subreddit": "Parenting",
+                              "created_utc": now - i * 100, "score": None} for i in range(1, 101)]}
+
+        comments = {"data": [{"id": "k1", "body": "I wish there was an app for this", "subreddit": "Parenting",
+                              "link_id": "t3_p1", "created_utc": now}]}
+        client = FakeClient({"/posts/search": posts, "/comments/search": comments})
+        src = reddit.RedditSource({"subreddits": ["Parenting"], "posts_per_listing": 105, "comments_per_sub": 5}, client)
+        got = list(src.collect())
+        self.assertEqual([p.native_id for p in got], [f"p{i}" for i in range(1, 101)] + ["old", "k1"])
+        self.assertEqual(got[0].url, "https://www.reddit.com/r/Parenting/comments/p1/")
+        self.assertEqual(got[-1].url, "https://www.reddit.com/r/Parenting/comments/p1/_/k1/")
+        self.assertEqual(got[-1].parent_id, "reddit:p1")
+        second_page = [p for url, p in client.calls if "/posts/search" in url and p.get("before")]
+        self.assertEqual(second_page[0]["before"], now - 100 * 100)
+        self.assertTrue(all("arctic-shift" in url for url, _ in client.calls))
+
+    def test_reddit_auto_falls_back_to_official_when_archive_down(self):
+        class Down(FakeClient):
+            def get_json(self, url, params=None, headers=None):
+                if "arctic-shift" in url:
+                    raise OSError("connection refused")
+                return super().get_json(url, params, headers)
+
+        client = Down({"/r/Parenting/comments": {"data": {"children": []}}, "/r/Parenting/top": REDDIT_LISTING})
+        posts = list(reddit.RedditSource({"subreddits": ["Parenting"]}, client).collect())
+        self.assertEqual([p.native_id for p in posts], ["abc"])  # no per-post requests without an app
+        self.assertTrue(any("www.reddit.com" in url for url, _ in client.calls))
 
     def test_hackernews_hit(self):
         hit = {"objectID": "9", "comment_text": "<p>I wish there was a <i>better</i> tool</p>", "author": "pg",

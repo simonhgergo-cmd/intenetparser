@@ -24,7 +24,8 @@ RETRY_STATUSES = {429, 500, 502, 503, 504}
 # observed limits. Different hosts run in parallel; override in [http.hosts].
 DEFAULT_HOST_INTERVALS = {
     "www.reddit.com": 6.5,         # ~10 requests/min without an app
-    "oauth.reddit.com": 0.65,      # 100 requests/min with a free app
+    "oauth.reddit.com": 0.65,      # 100 requests/min with an approved app
+    "arctic-shift.photon-reddit.com": 1.0,
     "hn.algolia.com": 0.4,         # 10,000 requests/hour
     "public.api.bsky.app": 0.25,
     "bsky.social": 0.25,

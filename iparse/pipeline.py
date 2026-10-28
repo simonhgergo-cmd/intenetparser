@@ -154,14 +154,21 @@ def plan(cfg: dict) -> list[dict]:
         g = lambda k, d=0: c.get(k, d)  # noqa: E731
         if name == "reddit":
             subs, searches = len(g("subreddits", [])), len(g("searches", []))
-            top, per_listing = int(g("top_post_comments", 3)), int(g("posts_per_listing", 100))
-            req = subs * (_pages(per_listing, 100) + _pages(g("comments_per_sub", 100), 100) + top) \
-                + searches * (_pages(per_listing, 100) + top)
-            items = (subs + searches) * (per_listing + top * int(g("comments_per_post", 30))) \
-                + subs * int(g("comments_per_sub", 100))
-            authed = g("client_id") and g("client_secret")
-            secs = req * iv("oauth.reddit.com" if authed else "www.reddit.com")
-            note = f"{subs} subreddits" + ("" if authed else " - add client_id/secret for ~10x speed")
+            per_listing, stream = int(g("posts_per_listing", 100)), int(g("comments_per_sub", 100))
+            authed = bool(g("client_id") and g("client_secret"))
+            mode = g("mode", "auto")
+            if mode == "archive" or (mode == "auto" and not authed):
+                req = subs * (_pages(per_listing, 100) + _pages(stream, 100))
+                items = subs * (per_listing + stream)
+                secs = req * iv("arctic-shift.photon-reddit.com")
+                note = f"{subs} subreddits via the Arctic Shift archive"
+            else:
+                top = int(g("top_post_comments", 3 if authed else 0))
+                req = subs * (_pages(per_listing, 100) + _pages(stream, 100) + top) \
+                    + searches * (_pages(per_listing, 100) + top)
+                items = (subs + searches) * (per_listing + top * int(g("comments_per_post", 30))) + subs * stream
+                secs = req * iv("oauth.reddit.com" if authed else "www.reddit.com")
+                note = f"{subs} subreddits direct from Reddit" + ("" if authed else " (no app: ~10 requests/min)")
         elif name == "hackernews":
             req = len(g("queries", [])) * len(g("tags", ["story", "comment"])) * _pages(g("max_per_query", 200), 100)
             items, secs, note = req * 100, req * iv("hn.algolia.com"), ""
