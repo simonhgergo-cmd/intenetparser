@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+build/
+dist/
+
+# local config may contain credentials
+config.toml
+
+# collected data and outputs
+data/
+reports/
+exports/

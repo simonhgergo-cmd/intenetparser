@@ -1,0 +1,125 @@
+# Copy to config.toml (`iparse init` does this) and edit.
+# Every source is free. Some get better with a free account or key; see comments.
+
+[storage]
+db = "data/iparse.db"
+# Author names are stored only as salted hashes. Change this to your own random string.
+author_salt = "change-me"
+
+[http]
+# Seconds between requests to the same host. Be polite: lower values get you blocked.
+min_interval = 2.0
+
+[analysis]
+min_mentions = 2        # a theme needs at least this many posts to show up
+top = 25                # themes per list
+min_segment_posts = 10  # hide segments with fewer posts than this
+
+[output]
+report = "reports/report.html"
+exports = "exports"
+
+[schedule]
+every = "6h"            # used by `iparse run`
+
+# Map your own communities to audience segments (adds to the built-in list).
+[segments.communities]
+# "r/BabyBumps" = ["expecting parents"]
+# "se/expatriates" = ["expats"]
+
+# ---------------------------------------------------------------- sources
+
+[sources.reddit]
+enabled = true
+# Optional, more reliable: create a free "script" app at https://www.reddit.com/prefs/apps
+# client_id = ""
+# client_secret = ""
+sort = "top"          # top | hot | new
+time = "week"         # hour | day | week | month | year | all (for top)
+posts_per_listing = 50
+comments_per_post = 30
+subreddits = [
+  # parents / family
+  "Parenting", "Mommit", "daddit", "beyondthebump", "toddlers", "SingleParents",
+  # students / young people
+  "college", "GradSchool", "teenagers", "ApplyingToCollege", "Adulting",
+  # older people
+  "retirement", "AskOldPeople",
+  # money / housing
+  "personalfinance", "povertyfinance", "Frugal", "FirstTimeHomeBuyer", "Renting",
+  # work
+  "jobs", "careerguidance", "smallbusiness", "Entrepreneur", "freelance", "nursing", "Teachers",
+  "cscareerquestions", "Truckers", "KitchenConfidential", "remotework",
+  # life / hobbies
+  "Fitness", "loseit", "Cooking", "MealPrepSunday", "HomeImprovement", "dogs", "cats",
+  "solotravel", "gaming", "BuyItForLife", "SkincareAddiction", "AskWomen", "AskMen",
+  "gardening", "weddingplanning", "dating",
+]
+searches = [
+  "\"is there an app\"", "\"I wish there was\"", "\"why is it so hard to\"",
+  "\"I would pay for\"", "\"someone should make\"",
+]
+
+[sources.hackernews]
+enabled = true
+queries = ["Ask HN", "I wish there was", "is there a tool", "frustrated with", "would pay for"]
+tags = ["story", "comment"]
+max_per_query = 200
+
+[sources.bluesky]
+# Substitute for X/Twitter. If search returns 401/403, add a free account + app password.
+enabled = true
+# handle = "you.bsky.social"
+# app_password = ""
+queries = ["\"I wish there was\"", "\"is there an app\"", "\"so frustrating\"", "\"game changer\"",
+           "\"why is it so hard\"", "\"would pay for\""]
+max_per_query = 200
+lang = "en"
+
+[sources.mastodon]
+enabled = true
+instances = ["mastodon.social"]
+hashtags = ["AskFedi", "parenting", "smallbusiness", "teachers", "nursing", "freelance", "disability"]
+max_per_tag = 200
+
+[sources.stackexchange]
+enabled = true
+# key = ""   # free, raises the daily limit from 300 to 10,000 requests
+sites = ["parenting", "money", "cooking", "workplace", "travel", "diy", "pets", "academia",
+         "fitness", "lifehacks", "superuser"]
+days = 365
+max_per_site = 200
+
+[sources.appstore]
+enabled = true
+country = "us"
+search_terms = ["budget", "meal planner", "fitness tracker", "language learning", "baby tracker",
+                "to do list", "habit tracker", "dating", "job search", "pet care"]
+apps_per_term = 5
+pages_per_app = 3     # 50 reviews per page, max 10 pages
+
+[sources.youtube]
+# Needs a free API key: Google Cloud console -> enable "YouTube Data API v3" -> credentials.
+enabled = false
+# api_key = ""
+queries = ["day in the life struggles", "things I wish I knew", "product review honest"]
+videos_per_query = 10
+comments_per_video = 100
+
+[sources.tiktok]
+# Experimental, logged-out and read-only. Needs: pip install playwright && playwright install chromium
+# Against TikTok's terms of service: your call. Keep the volume low.
+enabled = false
+hashtags = ["momtok", "collegelife", "smallbusinesscheck", "nursetok", "teachertok", "budgeting"]
+videos_per_tag = 8
+comments_per_video = 50
+delay_seconds = 4
+headless = true
+
+[sources.import]
+# Load anything you collected yourself (Instagram/TikTok comments you copied, exports, surveys).
+enabled = false
+# [[sources.import.files]]
+# path = "data/inbox/instagram_*.csv"
+# source = "instagram"
+# community = "ig:skincare"

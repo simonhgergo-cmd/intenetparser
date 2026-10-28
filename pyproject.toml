@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intenetparser"
+version = "0.1.0"
+description = "Map what people talk about, struggle with and love across public social media."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+tiktok = ["playwright>=1.40"]
+
+[project.scripts]
+iparse = "iparse.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["iparse*"]
