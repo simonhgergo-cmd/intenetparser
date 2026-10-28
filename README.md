@@ -20,8 +20,10 @@ iparse run --once        # collect -> analyse -> report -> LLM export
 open reports/report.html # macOS; on Linux use xdg-open, on Windows start
 ```
 
-The first run with the default config takes a while (roughly 30–60 minutes), because requests are
-deliberately spaced out (`[http] min_interval`) so the sources don't block you.
+The first run with the default config makes about 2,800 requests and takes roughly 1.5–2 hours,
+because requests are deliberately spaced out (`[http] min_interval`) so the sources don't block
+you. Almost all of that is Reddit comments. Without a free Reddit app (`client_id`/`client_secret`)
+Reddit allows far fewer requests per minute, so expect several hours or skipped listings.
 
 ## Sources
 
