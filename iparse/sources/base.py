@@ -18,9 +18,10 @@ class Source:
 
     name = ""
 
-    def __init__(self, cfg: dict, client: Client):
+    def __init__(self, cfg: dict, client: Client, known: set[str] | None = None):
         self.cfg = cfg
         self.client = client
+        self.known = known or set()  # native ids already in the database
         self.log = logging.getLogger(f"iparse.sources.{self.name}")
 
     def collect(self) -> Iterator[Post]:

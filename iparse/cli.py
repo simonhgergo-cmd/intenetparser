@@ -41,10 +41,18 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--every", help="interval like 30m, 6h, 1d (default from config)")
     run.add_argument("--once", action="store_true")
     sub.add_parser("stats", help="show what is in the database")
+    sub.add_parser("plan", help="estimate requests, items and time per source for one cycle")
+    sub.add_parser("catalog", help="list built-in groups of people and their communities")
+    d = sub.add_parser("discover", help="find subreddits for a keyword, to add to config")
+    d.add_argument("keyword")
 
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+
+    if args.cmd == "catalog":
+        _print_catalog()
+        return 0
 
     if args.cmd == "init":
         if Path(args.config).exists():
@@ -75,6 +83,23 @@ def main(argv: list[str] | None = None) -> int:
             packs = Path(args.packs) if args.packs else export_dir / "llm"
             for p in run_packs(packs, args.url, args.model, args.api_key):
                 print(f"Wrote {p}")
+        elif args.cmd == "plan":
+            rows = P.plan(cfg)
+            print(f"{'source':14} {'requests':>9} {'~items':>9} {'~minutes':>9}  note")
+            for r in rows:
+                print(f"{r['source']:14} {r['requests']:>9,} {r['items']:>9,} {r['minutes']:>9.0f}  {r['note']}")
+            if rows:
+                print(f"{'total':14} {sum(r['requests'] for r in rows):>9,} {sum(r['items'] for r in rows):>9,} "
+                      f"{max(r['minutes'] for r in rows):>9.0f}  sources run in parallel: time = slowest")
+        elif args.cmd == "discover":
+            subs = P.discover(cfg, args.keyword)
+            for s in subs:
+                flag = " [nsfw]" if s["nsfw"] else ""
+                print(f"{s['subscribers']:>10,}  r/{s['name']}{flag}  {s['title'][:60]}")
+            if subs:
+                names = ", ".join(f'"{s["name"]}"' for s in subs[:8] if not s["nsfw"])
+                print(f"\nAdd to config.toml under [sources.reddit]:\nsubreddits = [{names}]")
+                print(f'and label them under [segments.communities], e.g. "r/{subs[0]["name"]}" = ["your segment"]')
         elif args.cmd == "stats":
             c = store.counts()
             print(f"{c['posts']} posts, {c['analyzed']} analysed")
@@ -98,6 +123,17 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         store.close()
     return 0
+
+
+def _print_catalog() -> None:
+    from .catalog import CATALOG
+    for dim in ("audience", "interest", "region"):
+        print(f"\n{dim.upper()}")
+        for name, g in CATALOG.items():
+            if g["dim"] == dim:
+                extra = "  (sensitive: off unless include_sensitive = true)" if g["sensitive"] else ""
+                print(f"  {name:30} {len(g['reddit']):2} subreddits, {len(g['se'])} SE sites, "
+                      f"{len(g['mastodon'])} hashtags, {len(g['apps'])} app terms{extra}")
 
 
 def _export(cfg, store, args, export_dir: Path) -> None:

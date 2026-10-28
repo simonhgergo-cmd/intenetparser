@@ -20,8 +20,8 @@ from .base import Source
 class RedditSource(Source):
     name = "reddit"
 
-    def __init__(self, cfg, client):
-        super().__init__(cfg, client)
+    def __init__(self, cfg, client, known=None):
+        super().__init__(cfg, client, known)
         self._token: str | None = None
         self._token_expires = 0.0
 
@@ -52,18 +52,28 @@ class RedditSource(Source):
 
     # --- collection ------------------------------------------------------
     def collect(self) -> Iterator[Post]:
+        """Per subreddit: one request for up to 100 posts, one for the latest 100
+        comments, plus the top comments of its few highest-scoring new posts."""
         sort = self.cfg.get("sort", "top")
         period = self.cfg.get("time", "week")
-        per_listing = int(self.cfg.get("posts_per_listing", 50))
-        comments = int(self.cfg.get("comments_per_post", 30))
+        per_listing = int(self.cfg.get("posts_per_listing", 100))
+        stream = int(self.cfg.get("comments_per_sub", 100))
+        top_posts = int(self.cfg.get("top_post_comments", 3))
+        per_post = int(self.cfg.get("comments_per_post", 30))
 
-        for sub in self.cfg.get("subreddits", []):
-            yield from self._listing(f"/r/{sub}/{sort}", {"t": period}, per_listing, comments, query="")
-        for q in self.cfg.get("searches", []):
-            yield from self._listing("/search", {"q": q, "sort": "relevance", "t": period},
-                                     per_listing, comments, query=q)
+        listings = [(f"/r/{sub}/{sort}", {"t": period}, "", sub) for sub in self.cfg.get("subreddits", [])]
+        listings += [("/search", {"q": q, "sort": "relevance", "t": period}, q, None)
+                     for q in self.cfg.get("searches", [])]
+        for path, params, query, sub in listings:
+            posts = list(self._listing(path, params, per_listing, query))
+            yield from posts
+            if sub and stream:
+                yield from self._comment_stream(sub, stream)
+            fresh = [p for p in posts if p.num_comments and p.native_id not in self.known]
+            for post in sorted(fresh, key=lambda p: p.score, reverse=True)[:top_posts]:
+                yield from self._comments(post, per_post)
 
-    def _listing(self, path, params, limit, comments, query) -> Iterator[Post]:
+    def _listing(self, path, params, limit, query) -> Iterator[Post]:
         after = None
         fetched = 0
         while fetched < limit:
@@ -76,15 +86,33 @@ class RedditSource(Source):
             if not children:
                 return
             for child in children:
+                if child.get("kind") != "t3":
+                    continue  # unknown subreddits redirect to a subreddit search
                 post = parse_post(child.get("data", {}), query)
-                if post is None:
-                    continue
-                fetched += 1
-                yield post
-                if comments and post.num_comments:
-                    yield from self._comments(post, comments)
+                if post:
+                    fetched += 1
+                    yield post
             after = data["data"].get("after")
             if not after:
+                return
+
+    def _comment_stream(self, sub: str, limit: int) -> Iterator[Post]:
+        """Newest comments across a whole subreddit, 100 per request."""
+        after, fetched = None, 0
+        while fetched < limit:
+            try:
+                data = self._get(f"/r/{sub}/comments", {"limit": min(100, limit - fetched), "after": after})
+            except HttpError as e:
+                self.log.warning("Skipping comments of r/%s: %s", sub, e)
+                return
+            children = data.get("data", {}).get("children", [])
+            for child in children:
+                post = parse_stream_comment(child)
+                if post:
+                    fetched += 1
+                    yield post
+            after = data.get("data", {}).get("after")
+            if not children or not after:
                 return
 
     def _comments(self, post: Post, limit: int) -> Iterator[Post]:
@@ -95,6 +123,14 @@ class RedditSource(Source):
             return
         if isinstance(data, list) and len(data) > 1:
             yield from parse_comments(data[1], post, limit)
+
+    def discover(self, query: str, limit: int = 25) -> list[dict]:
+        """Subreddits matching a keyword, biggest first."""
+        data = self._get("/subreddits/search", {"q": query, "limit": limit})
+        subs = [c["data"] for c in data.get("data", {}).get("children", []) if c.get("kind") == "t5"]
+        subs.sort(key=lambda d: d.get("subscribers") or 0, reverse=True)
+        return [{"name": d["display_name"], "subscribers": d.get("subscribers") or 0,
+                 "title": d.get("title", ""), "nsfw": bool(d.get("over18"))} for d in subs]
 
 
 def parse_post(d: dict, query: str = "") -> Post | None:
@@ -117,6 +153,31 @@ def parse_post(d: dict, query: str = "") -> Post | None:
     )
 
 
+def _usable_comment(d: dict) -> bool:
+    body = d.get("body", "")
+    return bool(body) and body not in ("[deleted]", "[removed]") and d.get("author") != "AutoModerator"
+
+
+def parse_stream_comment(child: dict) -> Post | None:
+    d = child.get("data", {})
+    if child.get("kind") != "t1" or not _usable_comment(d):
+        return None
+    link = (d.get("link_id") or "").removeprefix("t3_")
+    return Post(
+        source="reddit",
+        native_id=d["id"],
+        kind="comment",
+        text=d["body"],
+        community=f"r/{d.get('subreddit', '')}",
+        author=d.get("author", ""),
+        url="https://www.reddit.com" + d.get("permalink", ""),
+        created_utc=float(d.get("created_utc", 0)),
+        score=int(d.get("score", 0)),
+        parent_id=f"reddit:{link}" if link else "",
+        meta={"post_title": d.get("link_title", "")},
+    )
+
+
 def parse_comments(listing: dict, parent: Post, limit: int) -> Iterator[Post]:
     count = 0
     stack = list(reversed(listing.get("data", {}).get("children", [])))
@@ -126,7 +187,7 @@ def parse_comments(listing: dict, parent: Post, limit: int) -> Iterator[Post]:
             continue
         d = node.get("data", {})
         body = d.get("body", "")
-        if body and body not in ("[deleted]", "[removed]") and d.get("author") != "AutoModerator":
+        if _usable_comment(d):
             count += 1
             yield Post(
                 source="reddit",

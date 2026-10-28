@@ -26,6 +26,8 @@ class PipelineTests(unittest.TestCase):
         self.cfg.write_text(f"""
 [storage]
 db = "{self.dir / 'db.sqlite'}"
+[catalog]
+groups = []
 [analysis]
 min_mentions = 2
 min_segment_posts = 2
@@ -77,6 +79,46 @@ community = "r/Parenting"
         row = next(store.posts())
         self.assertNotIn("realname", json.dumps(row))
         self.assertEqual(len(row["author_hash"]), 16)
+        store.close()
+
+    def test_parallel_analysis_matches_serial(self):
+        from iparse.pipeline import analyze, load_config
+        posts = [Post(source="x", native_id=str(i), text=SAMPLES[i % len(SAMPLES)]) for i in range(6000)]
+        results = []
+        for workers in (1, 2):
+            store = Store(self.dir / f"w{workers}.sqlite")
+            store.upsert_posts(posts)
+            self.assertEqual(analyze(load_config(self.cfg), store, workers=workers), 6000)
+            results.append(sorted((r["id"], json.dumps(r["problems"])) for r in store.joined()))
+            self.assertEqual(store.pending_ids(1), [])
+            store.close()
+        self.assertEqual(results[0], results[1])
+
+    def test_sources_run_in_parallel_and_failures_are_isolated(self):
+        import time
+        from unittest import mock
+        from iparse import pipeline
+
+        class Slow:
+            def __init__(self, cfg, client, known):
+                self.cfg = cfg
+
+            def collect(self):
+                time.sleep(0.4)
+                yield Post(source=self.cfg["label"], native_id="1", text="hello")
+                if self.cfg.get("boom"):
+                    raise RuntimeError("source broke")
+
+        cfg = {"catalog": {"groups": []}, "sources": {
+            "reddit": {"enabled": True, "label": "a"}, "hackernews": {"enabled": True, "label": "b", "boom": True},
+            "bluesky": {"enabled": True, "label": "c"}}}
+        store = Store(self.dir / "par.sqlite")
+        with mock.patch.object(pipeline.sources, "load", return_value=Slow):
+            t = time.time()
+            results = pipeline.collect(cfg, store)
+            elapsed = time.time() - t
+        self.assertLess(elapsed, 1.0)  # 3 x 0.4s sequentially would be 1.2s
+        self.assertEqual(results, {"reddit": (1, 0), "hackernews": (1, 0), "bluesky": (1, 0)})
         store.close()
 
     def test_parse_interval(self):

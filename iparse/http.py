@@ -8,6 +8,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -19,6 +20,19 @@ log = logging.getLogger(__name__)
 USER_AGENT = "intenetparser/0.1 (public-discussion research; +https://github.com/simonhgergo-cmd/intenetparser)"
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
+# Seconds between requests per host, matched to each service's published or
+# observed limits. Different hosts run in parallel; override in [http.hosts].
+DEFAULT_HOST_INTERVALS = {
+    "www.reddit.com": 6.5,         # ~10 requests/min without an app
+    "oauth.reddit.com": 0.65,      # 100 requests/min with a free app
+    "hn.algolia.com": 0.4,         # 10,000 requests/hour
+    "public.api.bsky.app": 0.25,
+    "bsky.social": 0.25,
+    "api.stackexchange.com": 0.25,
+    "itunes.apple.com": 3.0,       # ~20 requests/min
+    "www.googleapis.com": 0.1,
+}
+
 
 class HttpError(Exception):
     def __init__(self, status: int, url: str, body: str = ""):
@@ -29,19 +43,28 @@ class HttpError(Exception):
 
 
 class Client:
-    def __init__(self, min_interval: float = 1.0, max_retries: int = 4,
-                 timeout: float = 30.0, user_agent: str = USER_AGENT):
+    """Thread-safe: requests to the same host are spaced out, different hosts don't wait on each other."""
+
+    def __init__(self, min_interval: float = 1.0, max_retries: int = 4, timeout: float = 30.0,
+                 user_agent: str = USER_AGENT, host_intervals: dict[str, float] | None = None):
         self.min_interval = min_interval
         self.max_retries = max_retries
         self.timeout = timeout
         self.user_agent = user_agent
+        self.host_intervals = {**DEFAULT_HOST_INTERVALS, **(host_intervals or {})}
         self._last_call: dict[str, float] = {}
+        self._locks: dict[str, threading.Lock] = {}
+        self._guard = threading.Lock()
 
     def _throttle(self, host: str) -> None:
-        wait = self._last_call.get(host, 0) + self.min_interval - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        self._last_call[host] = time.monotonic()
+        with self._guard:
+            lock = self._locks.setdefault(host, threading.Lock())
+        with lock:
+            interval = self.host_intervals.get(host, self.min_interval)
+            wait = self._last_call.get(host, 0) + interval - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self._last_call[host] = time.monotonic()
 
     def request(self, url: str, params: dict | None = None, headers: dict | None = None,
                 data: bytes | None = None, method: str | None = None) -> bytes:

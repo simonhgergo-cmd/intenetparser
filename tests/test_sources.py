@@ -43,14 +43,33 @@ class SourceTests(unittest.TestCase):
         for name in REGISTRY:
             self.assertTrue(load(name).name)
 
-    def test_reddit_listing_and_comments(self):
-        client = FakeClient({"/comments/abc": REDDIT_COMMENTS, "/r/Parenting/top": REDDIT_LISTING})
+    def test_reddit_listing_stream_and_top_comments(self):
+        stream = {"data": {"after": None, "children": [
+            {"kind": "t1", "data": {"id": "s1", "body": "I hate daycare waitlists", "subreddit": "Parenting",
+                                    "link_id": "t3_zzz", "permalink": "/s1", "score": 3, "author": "u9"}},
+            {"kind": "t1", "data": {"id": "s2", "body": "x", "author": "AutoModerator"}}]}}
+        client = FakeClient({"/comments/abc": REDDIT_COMMENTS, "/r/Parenting/comments": stream,
+                             "/r/Parenting/top": REDDIT_LISTING})
         src = reddit.RedditSource({"subreddits": ["Parenting"], "comments_per_post": 10}, client)
         posts = list(src.collect())
-        self.assertEqual([p.native_id for p in posts], ["abc", "c1", "c3"])
+        self.assertEqual([p.native_id for p in posts], ["abc", "s1", "c1", "c3"])
         self.assertEqual(posts[0].community, "r/Parenting")
-        self.assertEqual(posts[1].parent_id, "reddit:abc")
+        self.assertEqual(posts[1].parent_id, "reddit:zzz")
+        self.assertEqual(posts[2].parent_id, "reddit:abc")
         self.assertTrue(client.calls[0][0].endswith(".json"))
+
+    def test_reddit_skips_comments_of_known_posts(self):
+        client = FakeClient({"/r/Parenting/comments": {"data": {"children": []}},
+                             "/r/Parenting/top": REDDIT_LISTING})
+        src = reddit.RedditSource({"subreddits": ["Parenting"]}, client, known={"abc"})
+        self.assertEqual([p.native_id for p in src.collect()], ["abc"])
+        self.assertFalse(any("/comments/abc" in url for url, _ in client.calls))
+
+    def test_reddit_ignores_redirected_subreddit_search(self):
+        client = FakeClient({"/r/nope/comments": {"data": {"children": []}},
+                             "/r/nope/top": {"data": {"children": [{"kind": "t5", "data": {"id": "x"}}]}}})
+        src = reddit.RedditSource({"subreddits": ["nope"]}, client)
+        self.assertEqual(list(src.collect()), [])
 
     def test_hackernews_hit(self):
         hit = {"objectID": "9", "comment_text": "<p>I wish there was a <i>better</i> tool</p>", "author": "pg",

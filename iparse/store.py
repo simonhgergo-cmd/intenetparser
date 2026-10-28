@@ -56,6 +56,8 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.path)
         self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
         self.author_salt = author_salt
 
@@ -72,55 +74,67 @@ class Store:
 
         Returns (new, updated).
         """
-        new = updated = 0
         now = time.time()
+        rows = {}
         for p in posts:
-            if not p.full_text:
-                continue
-            exists = self.db.execute("SELECT 1 FROM posts WHERE id = ?", (p.id,)).fetchone()
-            row = (p.id, p.source, p.native_id, p.kind, p.community,
-                   self._hash_author(p.source, p.author), p.title, p.text, p.url, p.created_utc,
-                   int(p.score or 0), int(p.num_comments or 0), p.parent_id, p.query, p.lang,
-                   json.dumps(p.meta, ensure_ascii=False), now)
-            self.db.execute(
-                f"INSERT INTO posts ({', '.join(POST_COLUMNS)}) VALUES ({', '.join('?' * len(POST_COLUMNS))}) "
-                "ON CONFLICT(id) DO UPDATE SET score = excluded.score, "
-                "num_comments = excluded.num_comments, text = excluded.text, title = excluded.title",
-                row,
-            )
-            if exists:
-                updated += 1
-            else:
-                new += 1
+            if p.full_text:
+                rows[p.id] = (p.id, p.source, p.native_id, p.kind, p.community,
+                              self._hash_author(p.source, p.author), p.title, p.text, p.url, p.created_utc,
+                              int(p.score or 0), int(p.num_comments or 0), p.parent_id, p.query, p.lang,
+                              json.dumps(p.meta, ensure_ascii=False), now)
+        if not rows:
+            return 0, 0
+        existing = set()
+        ids = list(rows)
+        for i in range(0, len(ids), 900):  # SQLite caps bound parameters
+            chunk = ids[i:i + 900]
+            existing.update(r[0] for r in self.db.execute(
+                f"SELECT id FROM posts WHERE id IN ({','.join('?' * len(chunk))})", chunk))
+        self.db.executemany(
+            f"INSERT INTO posts ({', '.join(POST_COLUMNS)}) VALUES ({', '.join('?' * len(POST_COLUMNS))}) "
+            "ON CONFLICT(id) DO UPDATE SET score = excluded.score, "
+            "num_comments = excluded.num_comments, text = excluded.text, title = excluded.title",
+            rows.values(),
+        )
         self.db.commit()
-        return new, updated
+        return len(rows) - len(existing), len(existing)
 
-    def posts(self, unanalyzed_for_version: int | None = None) -> Iterator[dict]:
-        if unanalyzed_for_version is None:
-            sql = "SELECT * FROM posts"
-            args: tuple = ()
-        else:
-            sql = ("SELECT p.* FROM posts p LEFT JOIN analysis a ON a.post_id = p.id "
-                   "WHERE a.post_id IS NULL OR a.version < ?")
-            args = (unanalyzed_for_version,)
-        for row in self.db.execute(sql, args):
+    def known_ids(self, source: str) -> set[str]:
+        return {r[0] for r in self.db.execute("SELECT native_id FROM posts WHERE source = ?", (source,))}
+
+    def pending_ids(self, version: int | None) -> list[str]:
+        """Ids of posts needing analysis (all posts when version is None)."""
+        if version is None:
+            return [r[0] for r in self.db.execute("SELECT id FROM posts")]
+        return [r[0] for r in self.db.execute(
+            "SELECT p.id FROM posts p LEFT JOIN analysis a ON a.post_id = p.id "
+            "WHERE a.post_id IS NULL OR a.version < ?", (version,))]
+
+    def posts_by_ids(self, ids: list[str]) -> list[dict]:
+        out = []
+        for i in range(0, len(ids), 900):
+            chunk = ids[i:i + 900]
+            for row in self.db.execute(f"SELECT * FROM posts WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+                d = dict(row)
+                d["meta"] = json.loads(d["meta"] or "{}")
+                out.append(d)
+        return out
+
+    def posts(self) -> Iterator[dict]:
+        for row in self.db.execute("SELECT * FROM posts"):
             d = dict(row)
             d["meta"] = json.loads(d["meta"] or "{}")
             yield d
 
     def save_analysis(self, rows: Iterable[dict]) -> int:
-        n = 0
         now = time.time()
-        for r in rows:
-            self.db.execute(
-                "INSERT OR REPLACE INTO analysis (post_id, version, sentiment, problems, joys, wishes, "
-                "segments, keyphrases, analyzed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (r["post_id"], r["version"], r["sentiment"],
-                 *(json.dumps(r[k], ensure_ascii=False) for k in ANALYSIS_JSON), now),
-            )
-            n += 1
+        params = [(r["post_id"], r["version"], r["sentiment"],
+                   *(json.dumps(r[k], ensure_ascii=False) for k in ANALYSIS_JSON), now) for r in rows]
+        self.db.executemany(
+            "INSERT OR REPLACE INTO analysis (post_id, version, sentiment, problems, joys, wishes, "
+            "segments, keyphrases, analyzed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", params)
         self.db.commit()
-        return n
+        return len(params)
 
     def joined(self) -> Iterator[dict]:
         """Posts with their analysis attached (only analysed posts)."""

@@ -3,60 +3,26 @@
 Platforms do not tell us the age, gender or job of whoever wrote a post, so
 segments come from two places only:
 
-  * audience:<x>  - the community a post appeared in (r/Parenting -> parents).
-                    This describes the community, not the individual.
+  * audience:/interest:/region:<x> - the community a post appeared in
+                    (r/Parenting -> audience:parents, r/AusFinance -> region:Australia),
+                    from catalog.py. This describes the community, not the individual.
   * age:/gender:/role:/life: - things the author said about themselves
                     ("as a nurse", "I'm 34F", "my toddler"). Self-reported.
 
 Every post also gets platform:<source>. Nothing sensitive (health,
-ethnicity, religion, politics, sexuality) is inferred.
+ethnicity, religion, politics, sexuality) is inferred about individuals.
 """
 from __future__ import annotations
 
 import re
 
-# community (lowercased) -> audience segments. Extend via [segments.communities] in config.
+from ..catalog import community_segments
+
+# community (lowercase) -> segment tags, from the catalog plus a few extras.
+# Extend via [segments.communities] in config.
 DEFAULT_COMMUNITIES: dict[str, list[str]] = {
-    # parents & family
-    "r/parenting": ["parents"], "r/mommit": ["parents", "mothers"], "r/daddit": ["parents", "fathers"],
-    "r/beyondthebump": ["parents", "new parents"], "r/newparents": ["parents", "new parents"],
-    "r/toddlers": ["parents"], "r/singleparents": ["parents", "single parents"],
-    "r/pregnant": ["expecting parents"], "se/parenting": ["parents"],
-    "#parenting": ["parents"],
-    # students & young people
-    "r/college": ["students"], "r/applyingtocollege": ["students", "teens"],
-    "r/gradschool": ["students", "grad students"], "r/teenagers": ["teens"],
-    "r/highschool": ["teens", "students"], "r/studytips": ["students"], "se/academia": ["academics"],
-    "r/youngadults": ["young adults"], "r/adulting": ["young adults"],
-    # older people
-    "r/retirement": ["retirees"], "r/askoldpeople": ["older adults"], "r/over40": ["40+"],
-    "r/over50": ["50+"], "r/seniorcitizens": ["older adults"],
-    # money & housing
-    "r/personalfinance": ["money"], "r/povertyfinance": ["low income"], "r/frugal": ["budget-conscious"],
-    "r/firsttimehomebuyer": ["home buyers"], "r/renting": ["renters"], "r/realestate": ["home buyers"],
-    "r/financialindependence": ["savers/investors"], "se/money": ["money"],
-    # work
-    "r/jobs": ["job seekers"], "r/careerguidance": ["career changers"], "r/recruitinghell": ["job seekers"],
-    "r/cscareerquestions": ["tech workers"], "r/sysadmin": ["tech workers"], "hackernews": ["tech workers"],
-    "r/smallbusiness": ["small business owners"], "r/entrepreneur": ["entrepreneurs"],
-    "r/freelance": ["freelancers"], "r/workonline": ["remote workers"], "r/remotework": ["remote workers"],
-    "r/nursing": ["healthcare workers"], "r/medicine": ["healthcare workers"],
-    "r/teachers": ["teachers"], "r/teaching": ["teachers"], "r/truckers": ["truck drivers"],
-    "r/electricians": ["trades"], "r/construction": ["trades"], "r/kitchenconfidential": ["hospitality workers"],
-    "r/talesfromretail": ["retail workers"], "r/serverlife": ["hospitality workers"],
-    "se/workplace": ["office workers"], "r/realtors": ["real estate agents"],
-    # lifestyle & hobbies
-    "r/fitness": ["fitness"], "r/loseit": ["weight loss"], "r/running": ["runners"],
-    "r/cooking": ["home cooks"], "r/mealprepsunday": ["home cooks"], "se/cooking": ["home cooks"],
-    "r/homeimprovement": ["homeowners"], "r/diy": ["diy"], "se/diy": ["diy"],
-    "r/dogs": ["pet owners"], "r/cats": ["pet owners"], "se/pets": ["pet owners"],
-    "r/solotravel": ["travelers"], "r/travel": ["travelers"], "se/travel": ["travelers"],
-    "r/gaming": ["gamers"], "r/pcgaming": ["gamers"], "r/buyitforlife": ["shoppers"],
-    "r/skincareaddiction": ["skincare"], "r/malefashionadvice": ["fashion", "men (community)"],
-    "r/femalefashionadvice": ["fashion", "women (community)"], "r/askwomen": ["women (community)"],
-    "r/askmen": ["men (community)"], "r/twoxchromosomes": ["women (community)"],
-    "r/gardening": ["gardeners"], "r/plantclinic": ["gardeners"], "r/weddingplanning": ["engaged couples"],
-    "r/relationship_advice": ["relationships"], "r/dating": ["singles"], "r/lonely": ["lonely"],
+    **community_segments(),
+    "hackernews": ["audience:tech workers"],
 }
 
 ROLE_WORDS: dict[str, str] = {
@@ -121,9 +87,10 @@ def age_band(age: int) -> str | None:
 
 def infer_segments(post: dict, text: str, community_map: dict | None = None) -> list[str]:
     tags: list[str] = [f"platform:{post.get('source', 'unknown')}"]
-    community = (post.get("community") or "").lower()
-    mapping = {**DEFAULT_COMMUNITIES, **{k.lower(): v for k, v in (community_map or {}).items()}}
-    tags += [f"audience:{a}" for a in mapping.get(community, [])]
+    custom = {k.lower(): [v if ":" in v else f"audience:{v}" for v in vs]
+              for k, vs in (community_map or {}).items()}
+    for key in ((post.get("community") or "").lower(), f"{post.get('source')}:{post.get('query') or ''}".lower()):
+        tags += custom.get(key) or DEFAULT_COMMUNITIES.get(key, [])
 
     for m in _ROLE_RE.finditer(text):
         tags.append(f"role:{ROLE_WORDS[m.group(1).lower()]}")

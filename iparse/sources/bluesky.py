@@ -18,8 +18,8 @@ PDS = "https://bsky.social/xrpc"
 class BlueskySource(Source):
     name = "bluesky"
 
-    def __init__(self, cfg, client):
-        super().__init__(cfg, client)
+    def __init__(self, cfg, client, known=None):
+        super().__init__(cfg, client, known)
         self._jwt: str | None = None
 
     def _login(self) -> None:
