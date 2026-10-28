@@ -16,9 +16,7 @@ from pathlib import Path
 
 from . import catalog
 from . import pipeline as P
-from .export import export_llm_pack
 from .http import Client, HttpError
-from .report import write_report
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "config.example.toml"
 
@@ -154,26 +152,6 @@ def open_path(path: Path) -> None:
         subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=False)
 
 
-def run_cycle(cfg: dict) -> Path:
-    report_path, export_dir = P.output_paths(cfg)
-    store = P.open_store(cfg)
-    try:
-        started = time.time()
-        P.collect(cfg, store)
-        print("Analysing...")
-        P.analyze(cfg, store)
-        removed = P.prune(cfg, store)
-        if removed:
-            print(f"Removed {removed:,} posts older than keep_days.")
-        agg = P.build_aggregate(cfg, store)
-        write_report(agg, report_path)
-        export_llm_pack(store.joined(), export_dir / "llm", agg)
-        print(f"Done in {(time.time() - started) / 60:.0f} min. Report: {report_path.resolve()}")
-    finally:
-        store.close()
-    return report_path
-
-
 def show_stats(cfg: dict) -> None:
     store = P.open_store(cfg)
     try:
@@ -207,12 +185,12 @@ def menu(config_path: Path) -> None:
         choice = ask("Choose")
         try:
             if choice == "1":
-                open_path(run_cycle(cfg))
+                open_path(P.run_cycle(cfg))
             elif choice == "2":
                 interval = P.parse_interval(every)
                 first = True
                 while True:
-                    path = run_cycle(P.load_config(config_path))
+                    path = P.run_cycle(P.load_config(config_path))
                     if first:
                         open_path(path)
                         first = False

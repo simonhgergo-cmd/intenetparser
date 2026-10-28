@@ -15,7 +15,9 @@ from pathlib import Path
 
 from . import catalog, sources
 from .analysis import ANALYSIS_VERSION, aggregate, analyze_post
+from .export import export_llm_pack
 from .http import Client
+from .report import write_report
 from .store import Store
 
 log = logging.getLogger("iparse")
@@ -203,6 +205,27 @@ def plan(cfg: dict) -> list[dict]:
             req, items, secs, note = 0, 0, 0, "local files"
         rows.append({"source": name, "requests": req, "items": items, "minutes": secs / 60, "note": note})
     return rows
+
+
+def run_cycle(cfg: dict) -> Path:
+    """One full run: collect -> analyse -> prune -> report -> LLM export."""
+    report_path, export_dir = output_paths(cfg)
+    store = open_store(cfg)
+    try:
+        started = time.time()
+        collect(cfg, store)
+        log.info("Analysing...")
+        analyze(cfg, store)
+        removed = prune(cfg, store)
+        if removed:
+            log.info("Removed %d posts older than keep_days", removed)
+        agg = build_aggregate(cfg, store)
+        write_report(agg, report_path)
+        export_llm_pack(store.joined(), export_dir / "llm", agg)
+        log.info("Done in %.0f min. Report: %s", (time.time() - started) / 60, report_path.resolve())
+    finally:
+        store.close()
+    return report_path
 
 
 def discover(cfg: dict, query: str) -> list[dict]:

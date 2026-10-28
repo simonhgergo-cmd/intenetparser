@@ -20,7 +20,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("menu", help="simple menu (what the start files open)")
+    a2 = sub.add_parser("app", help="control panel in the browser (what the start files open)")
+    a2.add_argument("--port", type=int, default=8765)
+    a2.add_argument("--no-browser", action="store_true")
+    sub.add_parser("menu", help="simple text menu in the terminal")
     sub.add_parser("setup", help="step-by-step settings: Reddit app, groups, extras")
     sub.add_parser("init", help="create config.toml from the example")
     c = sub.add_parser("collect", help="fetch posts from enabled sources")
@@ -51,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+
+    if args.cmd == "app":
+        from .webapp import serve
+        serve(Path(args.config), args.port, not args.no_browser)
+        return 0
 
     if args.cmd in ("menu", "setup"):
         from . import interactive
@@ -116,13 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             interval = P.parse_interval(args.every or cfg.get("schedule", {}).get("every", "12h"))
             while True:
                 started = time.time()
-                P.collect(cfg, store)
-                P.analyze(cfg, store)
-                P.prune(cfg, store)
-                agg = P.build_aggregate(cfg, store)
-                write_report(agg, report_path)
-                export_llm_pack(store.joined(), export_dir / "llm", agg)
-                logging.info("Cycle done. Report: %s", report_path)
+                P.run_cycle(cfg)
                 if args.once:
                     break
                 sleep = max(60, interval - (time.time() - started))

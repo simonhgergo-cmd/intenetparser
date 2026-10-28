@@ -26,20 +26,20 @@ screen before clicking Install Now.
 | Mac | `Start (Mac).command`. If macOS says it can't verify the developer: right-click the file → **Open** → **Open**. |
 | Linux | `start-linux.sh` (or run `./start-linux.sh` in a terminal) |
 
-The first time, a setup wizard asks a few questions, mainly which groups of people to cover. Press Enter to skip any question. Then you get a menu:
+A control panel opens in your browser (in Hungarian). It runs only on your computer and only you
+can reach it:
 
-```
-  1  Collect now, then open the report
-  2  Keep collecting every 12h (leave this window open; close it to stop)
-  3  Open the latest report
-  4  Open the files to paste into Claude
-  5  How much is collected / disk space
-  6  Estimate time for one collection run
-  7  Change settings (Reddit app, groups, ...)
-```
+- **Áttekintés** (overview): start a collection (**Gyűjtés most**), keep collecting on a schedule
+  (**Folyamatos gyűjtés**), watch progress, see the time estimate and open the report.
+- **Beállítások** (settings): tick which groups of people and which sources to cover, pick the
+  Reddit mode, schedule and storage limit.
+- **Claude-hoz** (for Claude): copy the files to paste into Claude with one click.
 
-Choose **6** to see how long a run will take, then **1**. Your computer must stay on and awake while
-it collects. Turn off sleep, or use option 2 on a computer that stays on.
+A small black window also opens (minimised on Windows). That's the program itself: keep it open
+while you use the panel, because closing it stops everything. Your computer must stay on and awake
+while it collects.
+
+If you prefer a text menu in the terminal, run `python3 -m iparse menu`.
 
 ### Reddit: nothing to set up
 
@@ -69,14 +69,14 @@ Measured: **about 1 KB per collected post or comment**, including the analysis.
 | Upper limit with the default `keep_days = 90` | ~6–7 GB |
 | Report and Claude files | a few MB, overwritten each run |
 
-These are estimates from the expected new posts per run. Menu option **5** shows the real size.
+These are estimates from the expected new posts per run. The control panel shows the real size.
 To use less space, lower `keep_days` in `config.toml` (posts older than that are deleted), cover
 fewer groups, or collect less often. Everything is stored in the `data` folder; deleting it
 starts over.
 
 ## Command line (optional)
 
-Everything in the menu is also available as commands, for scripting or servers:
+Everything in the control panel is also available as commands, for scripting or servers:
 
 ```bash
 python3 -m iparse init           # or: pip install -e . and then use `iparse`
@@ -90,7 +90,7 @@ With the default config, which covers all ~70 non-sensitive groups in the catalo
 roughly **1,100 requests, ~80,000 posts and comments, ~15–20 minutes**. Reddit through the
 archive takes ~10 minutes; App Store reviews are now the slowest part.
 
-`iparse plan` (menu option 6) prints this for your own config. These are estimates from request
+`iparse plan` (or the estimate on the control panel) prints this for your own config. These are estimates from request
 counts and rate limits; real runs vary with errors and retries.
 
 How it stays fast:
@@ -157,7 +157,8 @@ iparse export csv|jsonl          everything, for spreadsheets / pandas
 iparse export llm                prompt packs for Claude or a local model (see below)
 iparse llm --model NAME          run the packs through a local OpenAI-compatible model
 iparse run [--every 12h] [--once] collect -> analyse -> report -> export, forever
-iparse menu / iparse setup       what the start files open
+iparse app                       browser control panel (what the start files open)
+iparse menu / iparse setup       text menu / setup wizard in the terminal
 iparse stats                     what's in the database
 ```
 
@@ -165,7 +166,7 @@ Collecting again doesn't create duplicates; it refreshes scores and comment coun
 
 ### Running it 24/7
 
-The menu's option 2 does this. From a terminal, `iparse run` loops on its own; to keep it alive
+The control panel's "Folyamatos gyűjtés" button does this. From a terminal, `iparse run` loops on its own; to keep it alive
 after you log out:
 
 ```bash

@@ -15,5 +15,6 @@ if not defined PY (
   pause
   exit /b 1
 )
-%PY% -m iparse menu
-pause
+echo  Starting the control panel in your browser...
+echo  A vezerlopult megnyilik a bongeszoben...
+start "intenetparser - close this window to stop" /min %PY% -m iparse app
