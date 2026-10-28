@@ -147,6 +147,18 @@ class Store:
                 d[k] = json.loads(d[k] or "[]")
             yield d
 
+    def prune(self, older_than: float) -> int:
+        """Delete posts created (or, if unknown, collected) before the given timestamp."""
+        where = "COALESCE(NULLIF(created_utc, 0), collected_at) < ?"
+        self.db.execute(f"DELETE FROM analysis WHERE post_id IN (SELECT id FROM posts WHERE {where})",
+                        (older_than,))
+        n = self.db.execute(f"DELETE FROM posts WHERE {where}", (older_than,)).rowcount
+        self.db.commit()
+        return n
+
+    def size_bytes(self) -> int:
+        return sum(f.stat().st_size for f in self.path.parent.glob(self.path.name + "*"))
+
     def counts(self) -> dict:
         total = self.db.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
         analysed = self.db.execute("SELECT COUNT(*) FROM analysis").fetchone()[0]

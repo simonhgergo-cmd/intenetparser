@@ -127,6 +127,12 @@ def analyze(cfg: dict, store: Store, everything: bool = False, workers: int | No
     return total
 
 
+def prune(cfg: dict, store: Store) -> int:
+    """Drop posts older than [storage] keep_days (0 = keep everything)."""
+    days = float(cfg.get("storage", {}).get("keep_days", 0))
+    return store.prune(time.time() - days * 86400) if days > 0 else 0
+
+
 def build_aggregate(cfg: dict, store: Store) -> dict:
     a = cfg.get("analysis", {})
     return aggregate(store.joined(), min_mentions=int(a.get("min_mentions", 2)),

@@ -3,8 +3,10 @@
 
 [storage]
 db = "data/iparse.db"
-# Author names are stored only as salted hashes. Change this to your own random string.
+# Author names are stored only as salted hashes. Setup replaces this with a random string.
 author_salt = "change-me"
+# Delete posts older than this many days (0 = keep forever). Each post is ~1 KB on disk.
+keep_days = 90
 
 [http]
 # Seconds between requests to a host that has no specific limit below.
@@ -33,7 +35,7 @@ report = "reports/report.html"
 exports = "exports"
 
 [schedule]
-every = "6h"            # used by `iparse run`
+every = "12h"           # how often "keep collecting" runs; each run adds roughly 30-40 MB
 
 # Map your own communities to audience segments (adds to the built-in list).
 [segments.communities]

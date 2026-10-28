@@ -20,6 +20,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    sub.add_parser("menu", help="simple menu (what the start files open)")
+    sub.add_parser("setup", help="step-by-step settings: Reddit app, groups, extras")
     sub.add_parser("init", help="create config.toml from the example")
     c = sub.add_parser("collect", help="fetch posts from enabled sources")
     c.add_argument("--source", action="append", help="only this source (repeatable; ignores 'enabled')")
@@ -49,6 +51,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+
+    if args.cmd in ("menu", "setup"):
+        from . import interactive
+        getattr(interactive, args.cmd)(Path(args.config))
+        return 0
 
     if args.cmd == "catalog":
         _print_catalog()
@@ -102,15 +109,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f'and label them under [segments.communities], e.g. "r/{subs[0]["name"]}" = ["your segment"]')
         elif args.cmd == "stats":
             c = store.counts()
-            print(f"{c['posts']} posts, {c['analyzed']} analysed")
+            print(f"{c['posts']:,} posts, {c['analyzed']:,} analysed, database {store.size_bytes() / 1e6:,.0f} MB")
             for s, n in sorted(c["by_source"].items(), key=lambda kv: -kv[1]):
                 print(f"  {s:15} {n}")
         elif args.cmd == "run":
-            interval = P.parse_interval(args.every or cfg.get("schedule", {}).get("every", "6h"))
+            interval = P.parse_interval(args.every or cfg.get("schedule", {}).get("every", "12h"))
             while True:
                 started = time.time()
                 P.collect(cfg, store)
                 P.analyze(cfg, store)
+                P.prune(cfg, store)
                 agg = P.build_aggregate(cfg, store)
                 write_report(agg, report_path)
                 export_llm_pack(store.joined(), export_dir / "llm", agg)

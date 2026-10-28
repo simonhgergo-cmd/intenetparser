@@ -9,22 +9,82 @@ products for.
   local LLM for better quality.
 - One self-contained HTML report.
 
-## Quick start
+## Getting started (no typing needed)
 
-```bash
-git clone https://github.com/simonhgergo-cmd/intenetparser && cd intenetparser
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-iparse init              # creates config.toml
-iparse plan              # how many requests / posts / minutes one cycle will take
-iparse run --once        # collect -> analyse -> report -> LLM export
-open reports/report.html # macOS; on Linux use xdg-open, on Windows start
+**1. Install Python** (one time). Download it from https://www.python.org/downloads/ and run the
+installer. **On Windows, tick "Add python.exe to PATH"** at the bottom of the first installer
+screen before clicking Install Now.
+
+**2. Download this project.** On https://github.com/simonhgergo-cmd/intenetparser click the green
+**Code** button, then **Download ZIP**. Unzip it somewhere you'll find again, e.g. Documents.
+
+**3. Double-click the start file** in the unzipped folder:
+
+| Your computer | File to double-click |
+|---|---|
+| Windows | `Start (Windows).bat`. If a blue "Windows protected your PC" box appears: **More info** → **Run anyway**. |
+| Mac | `Start (Mac).command`. If macOS says it can't verify the developer: right-click the file → **Open** → **Open**. |
+| Linux | `start-linux.sh` (or run `./start-linux.sh` in a terminal) |
+
+The first time, a setup wizard asks a few questions: the Reddit app (see below), and which groups
+of people to cover. Press Enter to skip any question. Then you get a menu:
+
+```
+  1  Collect now, then open the report
+  2  Keep collecting every 12h (leave this window open; close it to stop)
+  3  Open the latest report
+  4  Open the files to paste into Claude
+  5  How much is collected / disk space
+  6  Estimate time for one collection run
+  7  Change settings (Reddit app, groups, ...)
 ```
 
-**Do this first: create a free Reddit app.** Go to https://www.reddit.com/prefs/apps, choose
-"create another app", pick "script", and use any redirect URL (e.g. `http://localhost`). Paste
-the id (under the app name) and the secret into `[sources.reddit]`. This raises Reddit's limit
-from about 10 to 100 requests a minute, and Reddit is most of the data.
+Choose **6** to see how long a run will take, then **1**. Your computer must stay on and awake while
+it collects. Turn off sleep, or use option 2 on a computer that stays on.
+
+### The free Reddit app (recommended, about 2 minutes)
+
+Reddit is most of the data. Without an app, Reddit allows about 10 requests a minute; with one,
+100. That makes a full run about 20 minutes instead of about 2.5 hours. The setup wizard walks you
+through it and checks that it works:
+
+1. Log in to Reddit in your browser (any account; a new one is fine).
+2. Go to https://www.reddit.com/prefs/apps
+3. Scroll down and click **create another app...** (or **are you a developer? create an app**).
+4. Fill in: name `intenetparser`, type **script**, redirect uri `http://localhost:8080`.
+5. Click **create app**.
+6. Copy the **ID** (the short code under the app name, below "personal use script") and the
+   **secret**, and paste them into the wizard.
+
+If Reddit shows a form asking you to request API access instead of the button, fill it in
+(personal, non-commercial research), or skip it: everything still works, just slower.
+
+## Disk space
+
+Measured: **about 1 KB per collected post or comment**, including the analysis.
+
+| | Approximate size |
+|---|---|
+| First run (all groups) | ~100 MB |
+| Each later run (mostly new comments) | ~30–40 MB |
+| Collecting every 12 h | ~70 MB/day, ~2 GB/month |
+| Upper limit with the default `keep_days = 90` | ~6–7 GB |
+| Report and Claude files | a few MB, overwritten each run |
+
+These are estimates from the expected new posts per run. Menu option **5** shows the real size.
+To use less space, lower `keep_days` in `config.toml` (posts older than that are deleted), cover
+fewer groups, or collect less often. Everything is stored in the `data` folder; deleting it
+starts over.
+
+## Command line (optional)
+
+Everything in the menu is also available as commands, for scripting or servers:
+
+```bash
+python3 -m iparse init           # or: pip install -e . and then use `iparse`
+python3 -m iparse plan
+python3 -m iparse run --once
+```
 
 ## Speed and volume
 
@@ -104,7 +164,8 @@ iparse report                    write reports/report.html
 iparse export csv|jsonl          everything, for spreadsheets / pandas
 iparse export llm                prompt packs for Claude or a local model (see below)
 iparse llm --model NAME          run the packs through a local OpenAI-compatible model
-iparse run [--every 6h] [--once] collect -> analyse -> report -> export, forever
+iparse run [--every 12h] [--once] collect -> analyse -> report -> export, forever
+iparse menu / iparse setup       what the start files open
 iparse stats                     what's in the database
 ```
 
@@ -112,16 +173,17 @@ Collecting again doesn't create duplicates; it refreshes scores and comment coun
 
 ### Running it 24/7
 
-`iparse run` loops on its own. To keep it alive after you log out:
+The menu's option 2 does this. From a terminal, `iparse run` loops on its own; to keep it alive
+after you log out:
 
 ```bash
-nohup iparse run --every 6h > iparse.log 2>&1 &
+nohup iparse run --every 12h > iparse.log 2>&1 &
 ```
 
 Or use cron instead (`crontab -e`):
 
 ```
-0 */6 * * * cd /path/to/intenetparser && .venv/bin/iparse run --once >> iparse.log 2>&1
+0 */12 * * * cd /path/to/intenetparser && .venv/bin/iparse run --once >> iparse.log 2>&1
 ```
 
 ## Reading the report
